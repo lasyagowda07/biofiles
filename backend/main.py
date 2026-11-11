@@ -2,6 +2,7 @@ from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.services.inaturalist import (
+    get_categories,
     get_species,
     search_places,
 )
@@ -9,7 +10,7 @@ from backend.services.inaturalist import (
 app = FastAPI(
     title="BioFiles API",
     description="Biodiversity exploration and RAG-powered species information",
-    version="0.2.0",
+    version="0.3.0",
 )
 
 # Allow our local Next.js frontend to communicate with FastAPI.
@@ -60,6 +61,28 @@ async def search_locations(
     }
 
 
+@app.get("/api/species/categories")
+async def list_species_categories(
+    place_id: int = Query(
+        ...,
+        gt=0,
+        description="iNaturalist place ID",
+    ),
+):
+    """
+    Discover wildlife categories represented in a location.
+
+    Only categories with recorded species are returned.
+    """
+
+    categories = await get_categories(place_id)
+
+    return {
+        "place_id": place_id,
+        "categories": categories,
+    }
+
+
 @app.get("/api/species")
 async def list_species(
     place_id: int = Query(
@@ -78,13 +101,20 @@ async def list_species(
         le=50,
         description="Number of species per page",
     ),
+    iconic_taxon: str | None = Query(
+        None,
+        description="Optional iNaturalist iconic taxon filter",
+    ),
 ):
     """
     Retrieve species observed in a particular location.
+
+    Optionally filter results by iconic taxon.
     """
 
     return await get_species(
         place_id=place_id,
         page=page,
         per_page=per_page,
+        iconic_taxon=iconic_taxon,
     )

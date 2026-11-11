@@ -1,0 +1,474 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ==========================================
+   BIOFILES — DESIGN SYSTEM
+========================================== */
+
+@theme inline {
+  --font-pixel: var(--font-press-start);
+  --font-retro: var(--font-vt323);
+  --font-sans: var(--font-dm-sans);
+  --font-mono: var(--font-space-mono);
+  --font-heading: var(--font-space-grotesk);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* ==========================================
+   LIGHT THEME
+========================================== */
+
+:root {
+  --background: #f5f1e6;
+  --foreground: #254d32;
+
+  --card: #fffdf7;
+  --card-foreground: #254d32;
+
+  --popover: #fffdf7;
+  --popover-foreground: #254d32;
+
+  --primary: #254d32;
+  --primary-foreground: #f5f1e6;
+
+  --secondary: #a8bfa0;
+  --secondary-foreground: #254d32;
+
+  --muted: #e8e9dc;
+  --muted-foreground: #58705b;
+
+  --accent: #e7a977;
+  --accent-foreground: #254d32;
+
+  --destructive: #b54738;
+
+  --border: #b9c8af;
+  --input: #b9c8af;
+  --ring: #254d32;
+
+  --chart-1: #254d32;
+  --chart-2: #a8bfa0;
+  --chart-3: #e7a977;
+  --chart-4: #58705b;
+  --chart-5: #d5dfca;
+
+  --radius: 0.5rem;
+
+  --sidebar: #f5f1e6;
+  --sidebar-foreground: #254d32;
+  --sidebar-primary: #254d32;
+  --sidebar-primary-foreground: #f5f1e6;
+  --sidebar-accent: #a8bfa0;
+  --sidebar-accent-foreground: #254d32;
+  --sidebar-border: #b9c8af;
+  --sidebar-ring: #254d32;
+}
+
+/* ==========================================
+   DARK THEME
+========================================== */
+
+.dark {
+  --background: #17291e;
+  --foreground: #f5f1e6;
+
+  --card: #213a2a;
+  --card-foreground: #f5f1e6;
+
+  --popover: #213a2a;
+  --popover-foreground: #f5f1e6;
+
+  --primary: #a8bfa0;
+  --primary-foreground: #17291e;
+
+  --secondary: #365340;
+  --secondary-foreground: #f5f1e6;
+
+  --muted: #294333;
+  --muted-foreground: #c0d0b9;
+
+  --accent: #e7a977;
+  --accent-foreground: #17291e;
+
+  --destructive: #d76b5c;
+
+  --border: #49634d;
+  --input: #49634d;
+  --ring: #a8bfa0;
+
+  --chart-1: #a8bfa0;
+  --chart-2: #e7a977;
+  --chart-3: #58705b;
+  --chart-4: #d5dfca;
+  --chart-5: #b9c8af;
+
+  --sidebar: #17291e;
+  --sidebar-foreground: #f5f1e6;
+  --sidebar-primary: #a8bfa0;
+  --sidebar-primary-foreground: #17291e;
+  --sidebar-accent: #365340;
+  --sidebar-accent-foreground: #f5f1e6;
+  --sidebar-border: #49634d;
+  --sidebar-ring: #a8bfa0;
+}
+
+/* ==========================================
+   GLOBAL STYLES
+========================================== */
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    font-family: var(--font-space-grotesk), sans-serif;
+  }
+
+  button,
+  a {
+    transition:
+      transform 200ms ease,
+      background-color 200ms ease,
+      color 200ms ease,
+      border-color 200ms ease;
+  }
+
+  ::selection {
+    background: #a8bfa0;
+    color: #254d32;
+  }
+}
+
+/* ==========================================
+   RETRO DESKTOP
+========================================== */
+
+.bio-desktop {
+  --bio-green: #254d32;
+  --bio-cream: #f5f1e6;
+  --bio-sage: #a8bfa0;
+  --bio-apricot: #e7a977;
+
+  min-height: 100vh;
+}
+
+/* ==========================================
+   NAVIGATION
+========================================== */
+
+.bio-nav-button {
+  border: 2px solid var(--bio-green);
+  background: var(--bio-cream);
+  padding: 10px 14px;
+  font-family: var(--font-press-start);
+  font-size: 9px;
+  box-shadow: 3px 3px 0 var(--bio-green);
+  cursor: pointer;
+
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    background 180ms ease;
+}
+
+.bio-nav-button:hover {
+  background: var(--bio-sage);
+  transform: translate(-2px, -2px);
+  box-shadow: 5px 5px 0 var(--bio-green);
+}
+
+.bio-nav-button:active {
+  transform: translate(3px, 3px);
+  box-shadow: none;
+}
+
+/* ==========================================
+   HERO
+========================================== */
+
+.bio-hero {
+  isolation: isolate;
+}
+
+.bio-go-wild {
+  color: #f5f1e6;
+  -webkit-text-stroke: 3px #254d32;
+
+  text-shadow:
+    5px 5px 0 #a8bfa0,
+    9px 9px 0 #254d32;
+
+  letter-spacing: -0.06em;
+}
+
+.bio-hero-enter {
+  animation: bio-enter 850ms ease-out both;
+}
+
+@keyframes bio-enter {
+  from {
+    opacity: 0;
+    transform: translateY(25px) scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ==========================================
+   DESKTOP BACKGROUND
+========================================== */
+
+.bio-desktop-area {
+  position: relative;
+  background-color: #e8e9dc;
+
+  background-image:
+    linear-gradient(
+      rgba(37, 77, 50, 0.07) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      rgba(37, 77, 50, 0.07) 1px,
+      transparent 1px
+    );
+
+  background-size: 28px 28px;
+}
+
+/* ==========================================
+   DRAGGABLE WINDOWS
+========================================== */
+
+.bio-window {
+  animation: bio-window-open 350ms ease-out both;
+}
+
+@keyframes bio-window-open {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.bio-window-title {
+  user-select: none;
+  touch-action: none;
+}
+
+.bio-window-control {
+  display: flex;
+  height: 24px;
+  width: 24px;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #254d32;
+  background: #fffdf7;
+  cursor: pointer;
+
+  transition:
+    background 150ms ease,
+    transform 150ms ease;
+}
+
+.bio-window-control:hover {
+  background: #e7a977;
+  transform: translateY(-2px);
+}
+
+.bio-window-control:active {
+  transform: translateY(1px);
+}
+
+/* ==========================================
+   DESKTOP ICONS
+========================================== */
+
+.bio-desktop-icon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  transition: transform 200ms ease;
+}
+
+.bio-desktop-icon span {
+  background: #f5f1e6;
+  padding: 4px 7px;
+  font-family: var(--font-vt323);
+  font-size: 18px;
+}
+
+.bio-desktop-icon:hover {
+  transform: translateY(-6px) rotate(-3deg);
+}
+
+/* ==========================================
+   PRIMARY BUTTON
+========================================== */
+
+.bio-primary-button {
+  border: 3px solid #254d32;
+  background: #e7a977;
+  padding: 14px 18px;
+  font-family: var(--font-press-start);
+  font-size: 10px;
+  line-height: 1.6;
+  box-shadow: 5px 5px 0 #254d32;
+
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.bio-primary-button:hover {
+  transform: translate(-3px, -3px);
+  box-shadow: 8px 8px 0 #254d32;
+}
+
+.bio-primary-button:active {
+  transform: translate(4px, 4px);
+  box-shadow: 1px 1px 0 #254d32;
+}
+
+/* ==========================================
+   MOBILE RESPONSIVENESS
+========================================== */
+
+@media (max-width: 767px) {
+  .bio-go-wild {
+    -webkit-text-stroke: 1.5px #254d32;
+
+    text-shadow:
+      3px 3px 0 #a8bfa0,
+      5px 5px 0 #254d32;
+  }
+
+  .bio-desktop-area {
+    min-height: 850px;
+  }
+
+  .bio-nav-button {
+    padding: 8px 10px;
+    font-size: 8px;
+  }
+
+  .bio-window {
+    max-width: calc(100% - 20px);
+  }
+}
+
+/* ==========================================
+   CUSTOM Y2K CURSORS
+   Homepage only
+========================================== */
+
+@media (hover: hover) and (pointer: fine) {
+  .bio-desktop,
+  .bio-desktop * {
+    cursor: url("/cursors/arrow.svg") 3 2, auto !important;
+  }
+
+  .bio-desktop a,
+  .bio-desktop button,
+  .bio-desktop [role="button"] {
+    cursor: url("/cursors/hand.svg") 12 4, pointer !important;
+  }
+
+  .bio-desktop .bio-window-title {
+    cursor: grab !important;
+  }
+
+  .bio-desktop .bio-window-title:active {
+    cursor: grabbing !important;
+  }
+
+  .bio-desktop .bio-window-control {
+    cursor: url("/cursors/hand.svg") 12 4, pointer !important;
+  }
+}
+
+/* ==========================================
+   ACCESSIBILITY
+========================================== */
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
