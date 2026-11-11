@@ -8,11 +8,13 @@ import {
 } from "react";
 
 import type {
+  CSSProperties,
   PointerEvent,
   ReactNode,
 } from "react";
 
 import {
+  ArrowsOutSimple,
   Leaf,
   Minus,
   X,
@@ -21,6 +23,11 @@ import {
 type Position = {
   x: number;
   y: number;
+};
+
+type WindowSize = {
+  width: number;
+  height: number;
 };
 
 type SpeciesWindowProps = {
@@ -38,6 +45,19 @@ type SpeciesWindowProps = {
 const TASKBAR_HEIGHT = 72;
 const WINDOW_MARGIN = 12;
 
+const DEFAULT_WIDTH = 620;
+const DEFAULT_HEIGHT = 650;
+
+const MIN_WIDTH = 350;
+const MIN_HEIGHT = 300;
+
+function getViewportBounds() {
+  return {
+    width: window.innerWidth,
+    height: window.innerHeight - TASKBAR_HEIGHT,
+  };
+}
+
 export default function SpeciesWindow({
   title,
   children,
@@ -49,76 +69,115 @@ export default function SpeciesWindow({
   onMinimize,
   onClose,
 }: SpeciesWindowProps) {
-  const windowRef = useRef<HTMLDivElement>(null);
-
   const [position, setPosition] =
     useState<Position>(initialPosition);
+
+  const [size, setSize] = useState<WindowSize>({
+    width: DEFAULT_WIDTH,
+    height: DEFAULT_HEIGHT,
+  });
 
   const [isMobile, setIsMobile] = useState(false);
 
   const dragRef = useRef<{
+    pointerId: number;
     startX: number;
     startY: number;
     originX: number;
     originY: number;
   } | null>(null);
 
-  // --------------------------------------------------
-  // KEEP WINDOW INSIDE VIEWPORT
-  // --------------------------------------------------
+  const resizeRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    originWidth: number;
+    originHeight: number;
+  } | null>(null);
 
+  // Keep a window fully inside the available viewport.
   const constrainPosition = useCallback(
-    (next: Position): Position => {
-      const element = windowRef.current;
-
-      if (!element) {
-        return next;
-      }
+    (next: Position, currentSize: WindowSize): Position => {
+      const bounds = getViewportBounds();
 
       const maxX = Math.max(
         WINDOW_MARGIN,
-        window.innerWidth -
-          element.offsetWidth -
-          WINDOW_MARGIN
+        bounds.width - currentSize.width - WINDOW_MARGIN
       );
 
       const maxY = Math.max(
         WINDOW_MARGIN,
-        window.innerHeight -
-          element.offsetHeight -
-          TASKBAR_HEIGHT -
-          WINDOW_MARGIN
+        bounds.height - currentSize.height - WINDOW_MARGIN
       );
 
       return {
-        x: Math.min(
-          Math.max(WINDOW_MARGIN, next.x),
-          maxX
+        x: Math.min(Math.max(WINDOW_MARGIN, next.x), maxX),
+        y: Math.min(Math.max(WINDOW_MARGIN, next.y), maxY),
+      };
+    },
+    []
+  );
+
+  // Prevent resizing beyond the right/bottom viewport edges.
+  const constrainSize = useCallback(
+    (next: WindowSize, currentPosition: Position): WindowSize => {
+      const bounds = getViewportBounds();
+
+      const maxWidth = Math.max(
+        1,
+        bounds.width - currentPosition.x - WINDOW_MARGIN
+      );
+
+      const maxHeight = Math.max(
+        1,
+        bounds.height - currentPosition.y - WINDOW_MARGIN
+      );
+
+      return {
+        width: Math.min(
+          Math.max(MIN_WIDTH, next.width),
+          maxWidth
         ),
-        y: Math.min(
-          Math.max(WINDOW_MARGIN, next.y),
-          maxY
+        height: Math.min(
+          Math.max(MIN_HEIGHT, next.height),
+          maxHeight
         ),
       };
     },
     []
   );
 
-  // --------------------------------------------------
-  // RESPONSIVE BEHAVIOR
-  // --------------------------------------------------
-
+  // Clamp both dimensions and position when the viewport changes.
   useEffect(() => {
     function updateLayout() {
       const mobile = window.innerWidth < 768;
-
       setIsMobile(mobile);
 
-      if (!mobile) {
-        setPosition((current) =>
-          constrainPosition(current)
-        );
-      }
+      if (mobile) return;
+
+      const bounds = getViewportBounds();
+
+      const nextSize: WindowSize = {
+        width: Math.min(
+          Math.max(MIN_WIDTH, sizeRef.current.width),
+          Math.max(1, bounds.width - WINDOW_MARGIN * 2)
+        ),
+        height: Math.min(
+          Math.max(MIN_HEIGHT, sizeRef.current.height),
+          Math.max(1, bounds.height - WINDOW_MARGIN * 2)
+        ),
+      };
+
+      const nextPosition = constrainPosition(
+        positionRef.current,
+        nextSize
+      );
+
+      sizeRef.current = nextSize;
+      positionRef.current = nextPosition;
+
+      setSize(nextSize);
+      setPosition(nextPosition);
     }
 
     updateLayout();
@@ -130,135 +189,163 @@ export default function SpeciesWindow({
     };
   }, [constrainPosition]);
 
+  // Refs give pointer handlers the latest dimensions without
+  // depending on asynchronous state updates.
+  const positionRef = useRef(position);
+  const sizeRef = useRef(size);
+
+  function updatePosition(next: Position) {
+    positionRef.current = next;
+    setPosition(next);
+  }
+
+  function updateSize(next: WindowSize) {
+    sizeRef.current = next;
+    setSize(next);
+  }
+
   // --------------------------------------------------
-  // DRAG HANDLERS
+  // DRAGGING
   // --------------------------------------------------
 
-  function handlePointerDown(
-    event: PointerEvent<HTMLDivElement>
-  ) {
-    if (event.button !== 0 || isMobile) {
-      return;
-    }
+  function handleDragStart(event: PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0 || isMobile) return;
 
     onFocus();
 
     dragRef.current = {
+      pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
-      originX: position.x,
-      originY: position.y,
+      originX: positionRef.current.x,
+      originY: positionRef.current.y,
     };
 
-    event.currentTarget.setPointerCapture(
-      event.pointerId
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handleDragMove(event: PointerEvent<HTMLDivElement>) {
+    const drag = dragRef.current;
+
+    if (!drag || drag.pointerId !== event.pointerId) return;
+
+    updatePosition(
+      constrainPosition(
+        {
+          x: drag.originX + event.clientX - drag.startX,
+          y: drag.originY + event.clientY - drag.startY,
+        },
+        sizeRef.current
+      )
     );
   }
 
-  function handlePointerMove(
-    event: PointerEvent<HTMLDivElement>
-  ) {
-    if (!dragRef.current || isMobile) {
-      return;
-    }
+  function handleDragEnd(event: PointerEvent<HTMLDivElement>) {
+    if (dragRef.current?.pointerId !== event.pointerId) return;
 
-    const {
-      startX,
-      startY,
-      originX,
-      originY,
-    } = dragRef.current;
-
-    setPosition(
-      constrainPosition({
-        x: originX + event.clientX - startX,
-        y: originY + event.clientY - startY,
-      })
-    );
-  }
-
-  function handlePointerUp(
-    event: PointerEvent<HTMLDivElement>
-  ) {
     dragRef.current = null;
 
-    if (
-      event.currentTarget.hasPointerCapture(
-        event.pointerId
-      )
-    ) {
-      event.currentTarget.releasePointerCapture(
-        event.pointerId
-      );
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
     }
   }
 
   // --------------------------------------------------
-  // WINDOW STYLING
+  // RESIZING
   // --------------------------------------------------
 
-  const windowStyle = isMobile
-    ? {
-        zIndex,
-      }
+  function handleResizeStart(event: PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0 || isMobile) return;
+
+    event.stopPropagation();
+    onFocus();
+
+    resizeRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originWidth: sizeRef.current.width,
+      originHeight: sizeRef.current.height,
+    };
+
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function handleResizeMove(event: PointerEvent<HTMLDivElement>) {
+    const resize = resizeRef.current;
+
+    if (!resize || resize.pointerId !== event.pointerId) return;
+
+    event.stopPropagation();
+
+    updateSize(
+      constrainSize(
+        {
+          width:
+            resize.originWidth + event.clientX - resize.startX,
+          height:
+            resize.originHeight + event.clientY - resize.startY,
+        },
+        positionRef.current
+      )
+    );
+  }
+
+  function handleResizeEnd(event: PointerEvent<HTMLDivElement>) {
+    if (resizeRef.current?.pointerId !== event.pointerId) return;
+
+    event.stopPropagation();
+    resizeRef.current = null;
+
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+  }
+
+  // All window z-indices are relative to the manager's
+  // fixed stacking layer, which sits below the taskbar.
+  const windowStyle: CSSProperties = isMobile
+    ? { zIndex }
     : {
         left: position.x,
         top: position.y,
+        width: size.width,
+        height: size.height,
         zIndex,
       };
 
-  return (
+    return (
     <div
-      ref={windowRef}
-      style={windowStyle}
-      onPointerDown={onFocus}
-      className={`
-        fixed
-        flex
-        flex-col
-        overflow-hidden
-        border-[3px]
-        border-[#254d32]
-        bg-[#fffdf7]
+    style={windowStyle}
+    onPointerDown={onFocus}
+    className={`
+      pointer-events-auto absolute flex flex-col overflow-hidden
+        border-[3px] border-[#254d32]
+        bg-[#fffdf7] text-[#254d32]
         shadow-[9px_9px_0_#17291e]
         ${
           isMobile
-            ? "inset-x-3 top-3 bottom-[82px]"
-            : "h-[min(650px,calc(100dvh-110px))] w-[min(620px,calc(100vw-30px))]"
-        }
-        ${
-          minimized
-            ? "hidden"
+            ? "inset-x-3 top-3 bottom-3"
             : ""
         }
         ${
-          isMobile && !active
+          minimized || (isMobile && !active)
             ? "hidden"
             : ""
         }
       `}
     >
-      {/* ------------------------------------------
-          TITLE BAR
-      ------------------------------------------ */}
+      {/* TITLE BAR */}
 
       <div
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onPointerCancel={handlePointerUp}
+        onPointerDown={handleDragStart}
+        onPointerMove={handleDragMove}
+        onPointerUp={handleDragEnd}
+        onPointerCancel={handleDragEnd}
         className={`
-          flex
-          shrink-0
-          items-center
-          justify-between
-          gap-3
-          border-b-[3px]
-          border-[#254d32]
-          bg-[#a8bfa0]
-          px-4
-          py-3
-          select-none
+          flex shrink-0 items-center justify-between gap-3
+          border-b-[3px] border-[#254d32]
+          bg-[#a8bfa0] px-4 py-3 select-none
           ${
             isMobile
               ? ""
@@ -281,43 +368,53 @@ export default function SpeciesWindow({
         <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
-            onPointerDown={(event) =>
-              event.stopPropagation()
-            }
+            onPointerDown={(event) => event.stopPropagation()}
             onClick={onMinimize}
             aria-label={`Minimize ${title}`}
             className="flex h-8 w-8 items-center justify-center border-2 border-[#254d32] bg-[#fffdf7] transition-colors hover:bg-[#e7a977]"
           >
-            <Minus
-              size={16}
-              weight="bold"
-            />
+            <Minus size={16} weight="bold" />
           </button>
 
           <button
             type="button"
-            onPointerDown={(event) =>
-              event.stopPropagation()
-            }
+            onPointerDown={(event) => event.stopPropagation()}
             onClick={onClose}
             aria-label={`Close ${title}`}
             className="flex h-8 w-8 items-center justify-center border-2 border-[#254d32] bg-[#fffdf7] transition-colors hover:bg-[#e7a977]"
           >
-            <X
-              size={16}
-              weight="bold"
-            />
+            <X size={16} weight="bold" />
           </button>
         </div>
       </div>
 
-      {/* ------------------------------------------
-          WINDOW CONTENT
-      ------------------------------------------ */}
+      {/* CONTENT */}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
         {children}
       </div>
+
+      {/* BOTTOM-RIGHT RESIZE HANDLE */}
+
+      {!isMobile && (
+        <div
+          role="separator"
+          aria-label={`Resize ${title}`}
+          aria-orientation="vertical"
+          onPointerDown={handleResizeStart}
+          onPointerMove={handleResizeMove}
+          onPointerUp={handleResizeEnd}
+          onPointerCancel={handleResizeEnd}
+          className="absolute bottom-0 right-0 z-10 flex h-8 w-8 cursor-nwse-resize touch-none items-center justify-center border-l-2 border-t-2 border-[#254d32] bg-[#e7a977] hover:bg-[#f3c69b]"
+          title="Drag to resize window"
+        >
+          <ArrowsOutSimple
+            size={17}
+            weight="bold"
+            className="pointer-events-none"
+          />
+        </div>
+      )}
     </div>
   );
 }
