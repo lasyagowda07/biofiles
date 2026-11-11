@@ -22,7 +22,10 @@ import SpeciesCard, {
   type Species,
 } from "@/components/explore/SpeciesCard";
 
-import SpeciesDossier from "@/components/explore/SpeciesDossier";
+import SpeciesWindowManager, {
+  MAX_SPECIES_WINDOWS,
+  type OpenSpeciesWindow,
+} from "@/components/explore/SpeciesWindowManager";
 
 import CategoryFilters, {
   type WildlifeCategory,
@@ -130,11 +133,20 @@ export default function ExplorePage() {
     useState<string | null>(null);
 
   // --------------------------------------------------
-  // SPECIES DOSSIER STATE
+  // MULTI-WINDOW SPECIES STATE
   // --------------------------------------------------
 
-  const [selectedSpecies, setSelectedSpecies] =
-    useState<Species | null>(null);
+  const [speciesWindows, setSpeciesWindows] = useState<
+    OpenSpeciesWindow[]
+  >([]);
+
+  const [activeWindowId, setActiveWindowId] =
+    useState<number | null>(null);
+
+  const [limitReached, setLimitReached] = useState(false);
+
+  // Keep stacking order independent of React render timing.
+  const nextZIndexRef = useRef(60);
 
   // --------------------------------------------------
   // REFS
@@ -212,6 +224,8 @@ export default function ExplorePage() {
         const data: PlaceSearchResponse =
           await response.json();
 
+        if (controller.signal.aborted) return;
+
         setPlaces(data.results);
         setIsDropdownOpen(true);
       } catch (error) {
@@ -267,7 +281,9 @@ export default function ExplorePage() {
     setIsLoadingMore(false);
     setSpeciesError(null);
 
-    setSelectedSpecies(null);
+    // IMPORTANT:
+    // We intentionally do NOT close species windows here.
+    // Users can compare species across locations/categories.
   }
 
   // --------------------------------------------------
@@ -499,15 +515,114 @@ export default function ExplorePage() {
   }
 
   // --------------------------------------------------
-  // SPECIES DOSSIER HANDLERS
+  // SPECIES WINDOW HANDLERS
   // --------------------------------------------------
 
   function handleOpenDossier(item: Species) {
-    setSelectedSpecies(item);
+    if (!selectedPlace) return;
+
+    const existingWindow = speciesWindows.find(
+      (windowItem) => windowItem.species.id === item.id
+    );
+
+    if (existingWindow) {
+      handleFocusWindow(item.id);
+      return;
+    }
+
+    if (speciesWindows.length >= MAX_SPECIES_WINDOWS) {
+      setLimitReached(true);
+      return;
+    }
+
+    const nextZIndex = ++nextZIndexRef.current;
+
+    // Offset each new window so they don't completely overlap.
+    const offset = speciesWindows.length * 38;
+
+    const newWindow: OpenSpeciesWindow = {
+      species: item,
+      locationName: selectedPlace.name,
+      x: 70 + offset,
+      y: 55 + offset,
+      zIndex: nextZIndex,
+      minimized: false,
+    };
+
+    setSpeciesWindows((current) => [
+      ...current,
+      newWindow,
+    ]);
+
+    setActiveWindowId(item.id);
+    setLimitReached(false);
   }
 
-  function handleCloseDossier() {
-    setSelectedSpecies(null);
+  function handleFocusWindow(speciesId: number) {
+    const nextZIndex = ++nextZIndexRef.current;
+
+    setSpeciesWindows((current) =>
+      current.map((item) =>
+        item.species.id === speciesId
+          ? {
+              ...item,
+              minimized: false,
+              zIndex: nextZIndex,
+            }
+          : item
+      )
+    );
+
+    setActiveWindowId(speciesId);
+    setLimitReached(false);
+  }
+
+  function handleMinimizeWindow(speciesId: number) {
+    setSpeciesWindows((current) =>
+      current.map((item) =>
+        item.species.id === speciesId
+          ? { ...item, minimized: true }
+          : item
+      )
+    );
+
+    if (activeWindowId === speciesId) {
+      const nextActive = speciesWindows
+        .filter(
+          (item) =>
+            item.species.id !== speciesId &&
+            !item.minimized
+        )
+        .sort((a, b) => b.zIndex - a.zIndex)[0];
+
+      setActiveWindowId(
+        nextActive?.species.id ?? null
+      );
+    }
+  }
+
+  function handleCloseWindow(speciesId: number) {
+    setSpeciesWindows((current) =>
+      current.filter(
+        (item) => item.species.id !== speciesId
+      )
+    );
+
+    if (activeWindowId === speciesId) {
+      const nextActive = speciesWindows
+        .filter(
+          (item) =>
+            item.species.id !== speciesId &&
+            !item.minimized
+        )
+        .sort((a, b) => b.zIndex - a.zIndex)[0];
+
+      setActiveWindowId(
+        nextActive?.species.id ?? null
+      );
+    }
+
+    setLimitReached(false);
   }
 
   const hasMoreSpecies = species.length < totalSpecies;
@@ -1048,16 +1163,17 @@ export default function ExplorePage() {
         </div>
       </footer>
 
-      {/* SPECIES DOSSIER MODAL */}
+      {/* MULTI-WINDOW SPECIES EXPLORER */}
 
-      {selectedSpecies && selectedPlace && (
-        <SpeciesDossier
-          key={selectedSpecies.id}
-          species={selectedSpecies}
-          locationName={selectedPlace.name}
-          onClose={handleCloseDossier}
-        />
-      )}
+      <SpeciesWindowManager
+        windows={speciesWindows}
+        activeWindowId={activeWindowId}
+        onFocus={handleFocusWindow}
+        onMinimize={handleMinimizeWindow}
+        onClose={handleCloseWindow}
+        limitReached={limitReached}
+        onDismissLimit={() => setLimitReached(false)}
+      />
     </main>
   );
 }

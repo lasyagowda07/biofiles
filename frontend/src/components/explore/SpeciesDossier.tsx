@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+
 import {
   ArrowSquareOut,
   Binoculars,
   BookOpen,
   CheckCircle,
-  Leaf,
   LockKey,
-  X,
+  SpinnerGap,
+  WarningCircle,
 } from "@phosphor-icons/react";
 
 import type { Species } from "./SpeciesCard";
@@ -18,6 +19,19 @@ type SpeciesDossierProps = {
   locationName: string;
   onClose: () => void;
 };
+
+type SpeciesInfo = {
+  taxon_id: number;
+  common_name: string | null;
+  scientific_name: string;
+  title: string | null;
+  summary: string | null;
+  wikipedia_url: string | null;
+  available: boolean;
+};
+
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
 const TAXON_LABELS: Record<string, string> = {
   Aves: "Bird",
@@ -33,12 +47,44 @@ const TAXON_LABELS: Record<string, string> = {
   Animalia: "Animal",
 };
 
+function getWikipediaUrl(url: string | null) {
+  if (!url) return null;
+
+  try {
+    const parsedUrl = new URL(url);
+
+    if (
+      parsedUrl.protocol !== "https:" &&
+      parsedUrl.protocol !== "http:"
+    ) {
+      return null;
+    }
+
+    if (parsedUrl.hostname !== "en.wikipedia.org") {
+      return null;
+    }
+
+    return parsedUrl.toString();
+  } catch {
+    return null;
+  }
+}
+
 export default function SpeciesDossier({
   species,
   locationName,
-  onClose,
 }: SpeciesDossierProps) {
   const [imageFailed, setImageFailed] = useState(false);
+
+  const [speciesInfo, setSpeciesInfo] =
+    useState<SpeciesInfo | null>(null);
+
+  const [isLoadingInfo, setIsLoadingInfo] = useState(true);
+
+  const [infoError, setInfoError] =
+    useState<string | null>(null);
+
+  const [retryCount, setRetryCount] = useState(0);
 
   const displayName =
     species.common_name || species.scientific_name;
@@ -48,189 +94,296 @@ export default function SpeciesDossier({
       species.iconic_taxon_name
     : "Unknown";
 
+  // Fetch Wikipedia information independently for each species.
   useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        onClose();
+    const controller = new AbortController();
+
+    async function fetchSpeciesInfo() {
+      setIsLoadingInfo(true);
+      setInfoError(null);
+      setSpeciesInfo(null);
+
+      try {
+        const response = await fetch(
+          `${API_URL}/api/species/${species.id}/info`,
+          { signal: controller.signal }
+        );
+
+        if (!response.ok) {
+          throw new Error(
+            `Species information request failed: ${response.status}`
+          );
+        }
+
+        const data: SpeciesInfo = await response.json();
+
+        if (!controller.signal.aborted) {
+          setSpeciesInfo(data);
+        }
+      } catch (error) {
+        if (controller.signal.aborted) return;
+
+        console.error("Species encyclopedia error:", error);
+
+        setInfoError(
+          "We couldn't load this species' encyclopedia information right now."
+        );
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsLoadingInfo(false);
+        }
       }
     }
 
-    document.addEventListener("keydown", handleKeyDown);
+    void fetchSpeciesInfo();
 
-    // Prevent background scrolling while the dossier is open.
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    return () => controller.abort();
+  }, [species.id, retryCount]);
 
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [onClose]);
+  const wikipediaUrl = getWikipediaUrl(
+    speciesInfo?.wikipedia_url ?? species.wikipedia_url
+  );
+
+  const summaryParagraphs =
+    speciesInfo?.summary
+      ?.split(/\n+/)
+      .map((paragraph) => paragraph.trim())
+      .filter(Boolean) ?? [];
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[#17291e]/75 p-3 backdrop-blur-[3px] md:p-6"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          onClose();
-        }
-      }}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="species-dossier-title"
-        className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden border-[3px] border-[#254d32] bg-[#fffdf7] shadow-[9px_9px_0_#17291e]"
-      >
-        {/* Retro title bar */}
-        <div className="flex shrink-0 items-center justify-between border-b-[3px] border-[#254d32] bg-[#a8bfa0] px-4 py-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <Leaf size={20} weight="fill" />
+    <div className="bg-[#fffdf7]">
+      {/* SPECIES PHOTOGRAPH */}
 
-            <span className="truncate font-[family-name:var(--font-press-start)] text-[9px] md:text-[11px]">
-              SPECIES_FILE.EXE
+      <div className="relative aspect-[16/9] border-b-[3px] border-[#254d32] bg-[#dce8d6]">
+        {species.photo_url && !imageFailed ? (
+          <img
+            src={species.photo_url}
+            alt={displayName}
+            onError={() => setImageFailed(true)}
+            className="h-full w-full object-cover"
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center">
+            <Binoculars
+              size={65}
+              weight="duotone"
+              className="text-[#58705b]"
+            />
+          </div>
+        )}
+
+        <div className="absolute bottom-4 left-4 border-2 border-[#254d32] bg-[#f5f1e6] px-3 py-2 font-[family-name:var(--font-space-mono)] text-xs font-bold">
+          FILE #{species.id}
+        </div>
+      </div>
+
+      {/* SPECIES INFORMATION */}
+
+      <div className="p-6 md:p-9">
+        <div className="mb-4 flex items-center gap-2">
+          <CheckCircle size={18} weight="fill" />
+
+          <span className="font-[family-name:var(--font-press-start)] text-[9px]">
+            SPECIES IDENTIFIED
+          </span>
+        </div>
+
+        <h2 className="font-[family-name:var(--font-space-grotesk)] text-3xl font-black tracking-tight md:text-5xl">
+          {displayName}
+        </h2>
+
+        <p className="mt-3 font-[family-name:var(--font-space-mono)] text-sm italic text-[#58705b]">
+          {species.scientific_name}
+        </p>
+
+        {/* INFORMATION PANEL */}
+
+        <div className="mt-8 border-[3px] border-[#254d32] bg-[#f5f1e6]">
+          <div className="flex items-center justify-between gap-4 border-b-2 border-[#254d32] px-4 py-4">
+            <span className="font-[family-name:var(--font-space-mono)] text-xs text-[#58705b]">
+              CLASSIFICATION
+            </span>
+
+            <span className="font-[family-name:var(--font-space-mono)] text-sm font-bold">
+              {classification}
             </span>
           </div>
 
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close species dossier"
-            className="flex h-8 w-8 items-center justify-center border-2 border-[#254d32] bg-[#fffdf7] transition-colors hover:bg-[#e7a977]"
-          >
-            <X size={18} weight="bold" />
-          </button>
+          <div className="flex items-center justify-between gap-4 border-b-2 border-[#254d32] px-4 py-4">
+            <span className="font-[family-name:var(--font-space-mono)] text-xs text-[#58705b]">
+              OBSERVATIONS IN {locationName.toUpperCase()}
+            </span>
+
+            <span className="font-[family-name:var(--font-space-mono)] text-sm font-bold">
+              {species.observation_count.toLocaleString()}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between gap-4 px-4 py-4">
+            <span className="font-[family-name:var(--font-space-mono)] text-xs text-[#58705b]">
+              TAXON ID
+            </span>
+
+            <span className="font-[family-name:var(--font-space-mono)] text-sm font-bold">
+              {species.id}
+            </span>
+          </div>
         </div>
 
-        {/* Scrollable content */}
-        <div className="overflow-y-auto">
-          {/* Photograph */}
-          <div className="relative aspect-[16/9] border-b-[3px] border-[#254d32] bg-[#dce8d6]">
-            {species.photo_url && !imageFailed ? (
-              <img
-                src={species.photo_url}
-                alt={displayName}
-                onError={() => setImageFailed(true)}
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              <div className="flex h-full items-center justify-center">
-                <Binoculars
-                  size={65}
-                  weight="duotone"
-                  className="text-[#58705b]"
-                />
-              </div>
-            )}
+        {/* FIELD ENCYCLOPEDIA */}
 
-            <div className="absolute bottom-4 left-4 border-2 border-[#254d32] bg-[#f5f1e6] px-3 py-2 font-[family-name:var(--font-space-mono)] text-xs font-bold">
-              FILE #{species.id}
+        <section className="mt-10">
+          <div className="mb-5 flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center border-2 border-[#254d32] bg-[#e7a977]">
+              <BookOpen size={22} weight="duotone" />
+            </div>
+
+            <div>
+              <span className="font-[family-name:var(--font-press-start)] text-[8px]">
+                FIELD ENCYCLOPEDIA
+              </span>
+
+              <h3 className="mt-1 font-[family-name:var(--font-space-grotesk)] text-xl font-bold">
+                About this species
+              </h3>
             </div>
           </div>
 
-          {/* Species information */}
-          <div className="p-6 md:p-9">
-            <div className="mb-4 flex items-center gap-2">
-              <CheckCircle size={18} weight="fill" />
-
-              <span className="font-[family-name:var(--font-press-start)] text-[9px]">
-                SPECIES IDENTIFIED
-              </span>
-            </div>
-
-            <h2
-              id="species-dossier-title"
-              className="font-[family-name:var(--font-space-grotesk)] text-3xl font-black tracking-tight md:text-5xl"
+          {isLoadingInfo && (
+            <div
+              role="status"
+              className="border-[3px] border-[#254d32] bg-[#f5f1e6] p-6"
             >
-              {displayName}
-            </h2>
+              <div className="mb-4 flex items-center gap-3">
+                <SpinnerGap size={20} className="animate-spin" />
 
-            <p className="mt-3 font-[family-name:var(--font-space-mono)] text-sm italic text-[#58705b]">
-              {species.scientific_name}
-            </p>
-
-            {/* Information panel */}
-            <div className="mt-8 border-[3px] border-[#254d32] bg-[#f5f1e6]">
-              <div className="flex items-center justify-between gap-4 border-b-2 border-[#254d32] px-4 py-4">
-                <span className="font-[family-name:var(--font-space-mono)] text-xs text-[#58705b]">
-                  CLASSIFICATION
-                </span>
-
-                <span className="font-[family-name:var(--font-space-mono)] text-sm font-bold">
-                  {classification}
+                <span className="font-[family-name:var(--font-space-mono)] text-xs font-bold">
+                  RETRIEVING FIELD NOTES...
                 </span>
               </div>
 
-              <div className="flex items-center justify-between gap-4 border-b-2 border-[#254d32] px-4 py-4">
-                <span className="font-[family-name:var(--font-space-mono)] text-xs text-[#58705b]">
-                  OBSERVATIONS IN {locationName.toUpperCase()}
-                </span>
-
-                <span className="font-[family-name:var(--font-space-mono)] text-sm font-bold">
-                  {species.observation_count.toLocaleString()}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between gap-4 px-4 py-4">
-                <span className="font-[family-name:var(--font-space-mono)] text-xs text-[#58705b]">
-                  TAXON ID
-                </span>
-
-                <span className="font-[family-name:var(--font-space-mono)] text-sm font-bold">
-                  {species.id}
-                </span>
+              <div className="space-y-3">
+                <div className="h-3 w-full animate-pulse bg-[#dce8d6]" />
+                <div className="h-3 w-11/12 animate-pulse bg-[#dce8d6]" />
+                <div className="h-3 w-4/5 animate-pulse bg-[#dce8d6]" />
+                <div className="h-3 w-2/3 animate-pulse bg-[#dce8d6]" />
               </div>
             </div>
+          )}
 
-            {/* About section */}
-            <div className="mt-9">
-              <div className="mb-4 flex items-center gap-2">
-                <BookOpen size={21} weight="bold" />
-
-                <h3 className="font-[family-name:var(--font-space-grotesk)] text-xl font-bold">
-                  About this species
-                </h3>
-              </div>
-
-              <p className="font-[family-name:var(--font-dm-sans)] text-sm leading-7 text-[#58705b]">
-                Curious about the {displayName.toLowerCase()}?
-                Explore its natural history, habitat, behavior,
-                and ecological significance through the
-                available reference material.
-              </p>
-
-              {species.wikipedia_url ? (
-                <a
-                  href={species.wikipedia_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-6 inline-flex items-center gap-3 border-[3px] border-[#254d32] bg-[#e7a977] px-5 py-4 font-[family-name:var(--font-press-start)] text-[9px] leading-relaxed shadow-[4px_4px_0_#254d32] transition-transform hover:-translate-y-1"
-                >
-                  <ArrowSquareOut size={19} weight="bold" />
-                  OPEN WIKIPEDIA
-                </a>
-              ) : (
-                <p className="mt-5 font-[family-name:var(--font-space-mono)] text-xs text-[#58705b]">
-                  No Wikipedia article is linked to this species.
-                </p>
-              )}
-            </div>
-
-            {/* Future AI feature */}
-            <div className="mt-10 border-[3px] border-dashed border-[#254d32] bg-[#dce8d6] p-5">
-              <div className="flex items-center gap-3">
-                <LockKey size={24} weight="duotone" />
+          {!isLoadingInfo && infoError && (
+            <div
+              role="alert"
+              className="border-[3px] border-[#b54738] bg-[#fff0e9] p-5 text-[#9e382b]"
+            >
+              <div className="flex items-start gap-3">
+                <WarningCircle
+                  size={22}
+                  weight="bold"
+                  className="shrink-0"
+                />
 
                 <div>
-                  <h3 className="font-[family-name:var(--font-space-grotesk)] text-lg font-bold">
-                    Ask BioFiles AI
-                  </h3>
+                  <p className="font-[family-name:var(--font-dm-sans)] text-sm leading-relaxed">
+                    {infoError}
+                  </p>
 
-                  <p className="mt-1 font-[family-name:var(--font-dm-sans)] text-xs text-[#58705b]">
-                    AI-powered species research is coming soon.
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setRetryCount((previous) => previous + 1)
+                    }
+                    className="mt-4 border-2 border-[#9e382b] px-4 py-2 font-[family-name:var(--font-space-mono)] text-xs font-bold hover:bg-[#f8d9cd]"
+                  >
+                    RETRY REQUEST
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {!isLoadingInfo &&
+            !infoError &&
+            speciesInfo?.available &&
+            summaryParagraphs.length > 0 && (
+              <div className="border-[3px] border-[#254d32] bg-[#f5f1e6] p-5 md:p-6">
+                {speciesInfo.title && (
+                  <div className="mb-5 border-b-2 border-[#b9c8af] pb-4">
+                    <span className="font-[family-name:var(--font-space-mono)] text-[10px] font-bold text-[#58705b]">
+                      ARTICLE
+                    </span>
+
+                    <p className="mt-1 font-[family-name:var(--font-space-grotesk)] text-lg font-bold">
+                      {speciesInfo.title}
+                    </p>
+                  </div>
+                )}
+
+                <div className="space-y-5">
+                  {summaryParagraphs.map((paragraph, index) => (
+                    <p
+                      key={index}
+                      className="font-[family-name:var(--font-dm-sans)] text-sm leading-7 text-[#425e47] md:text-[15px]"
+                    >
+                      {paragraph}
+                    </p>
+                  ))}
+                </div>
+
+                <div className="mt-6 border-t-2 border-[#b9c8af] pt-4">
+                  <p className="font-[family-name:var(--font-space-mono)] text-[10px] text-[#58705b]">
+                    SOURCE: WIKIPEDIA
                   </p>
                 </div>
               </div>
+            )}
+
+          {!isLoadingInfo &&
+            !infoError &&
+            (!speciesInfo?.available ||
+              summaryParagraphs.length === 0) && (
+              <div className="border-[3px] border-dashed border-[#254d32] bg-[#f5f1e6] p-6">
+                <BookOpen
+                  size={28}
+                  weight="duotone"
+                  className="mb-4"
+                />
+
+                <p className="font-[family-name:var(--font-dm-sans)] text-sm leading-relaxed text-[#58705b]">
+                  We haven't found encyclopedia information
+                  for this species yet. You can still explore
+                  its observation records and classification.
+                </p>
+              </div>
+            )}
+
+          {!isLoadingInfo && wikipediaUrl && (
+            <a
+              href={wikipediaUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-6 inline-flex items-center gap-3 border-[3px] border-[#254d32] bg-[#e7a977] px-5 py-4 font-[family-name:var(--font-press-start)] text-[9px] leading-relaxed shadow-[4px_4px_0_#254d32] transition-transform hover:-translate-y-1"
+            >
+              <ArrowSquareOut size={19} weight="bold" />
+              READ FULL WIKIPEDIA ARTICLE
+            </a>
+          )}
+        </section>
+
+        {/* FUTURE AI FEATURE */}
+
+        <div className="mt-10 border-[3px] border-dashed border-[#254d32] bg-[#dce8d6] p-5">
+          <div className="flex items-center gap-3">
+            <LockKey size={24} weight="duotone" />
+
+            <div>
+              <h3 className="font-[family-name:var(--font-space-grotesk)] text-lg font-bold">
+                Ask BioFiles AI
+              </h3>
+
+              <p className="mt-1 font-[family-name:var(--font-dm-sans)] text-xs text-[#58705b]">
+                AI-powered species research is coming soon.
+              </p>
             </div>
           </div>
         </div>
