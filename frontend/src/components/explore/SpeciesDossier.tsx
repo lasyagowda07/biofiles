@@ -12,12 +12,21 @@ import {
   WarningCircle,
 } from "@phosphor-icons/react";
 
+import SpeciesAIChat from "./SpeciesAIChat";
+
 import type { Species } from "./SpeciesCard";
+
+// --------------------------------------------------
+// TYPES
+// --------------------------------------------------
 
 type SpeciesDossierProps = {
   species: Species;
   locationName: string;
   onClose: () => void;
+  onPrepareAI: () => void;
+  isAIReady: boolean;
+  isAIPreparing: boolean;
 };
 
 type SpeciesInfo = {
@@ -29,6 +38,10 @@ type SpeciesInfo = {
   wikipedia_url: string | null;
   available: boolean;
 };
+
+// --------------------------------------------------
+// CONFIGURATION
+// --------------------------------------------------
 
 const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
@@ -46,6 +59,10 @@ const TAXON_LABELS: Record<string, string> = {
   Actinopterygii: "Fish",
   Animalia: "Animal",
 };
+
+// --------------------------------------------------
+// WIKIPEDIA URL VALIDATION
+// --------------------------------------------------
 
 function getWikipediaUrl(url: string | null) {
   if (!url) return null;
@@ -70,11 +87,26 @@ function getWikipediaUrl(url: string | null) {
   }
 }
 
+// --------------------------------------------------
+// COMPONENT
+// --------------------------------------------------
+
 export default function SpeciesDossier({
   species,
   locationName,
+  onPrepareAI,
+  isAIReady,
+  isAIPreparing,
 }: SpeciesDossierProps) {
+  // --------------------------------------------------
+  // SPECIES IMAGE STATE
+  // --------------------------------------------------
+
   const [imageFailed, setImageFailed] = useState(false);
+
+  // --------------------------------------------------
+  // WIKIPEDIA INFORMATION STATE
+  // --------------------------------------------------
 
   const [speciesInfo, setSpeciesInfo] =
     useState<SpeciesInfo | null>(null);
@@ -86,6 +118,10 @@ export default function SpeciesDossier({
 
   const [retryCount, setRetryCount] = useState(0);
 
+  // --------------------------------------------------
+  // SPECIES DISPLAY VALUES
+  // --------------------------------------------------
+
   const displayName =
     species.common_name || species.scientific_name;
 
@@ -94,7 +130,10 @@ export default function SpeciesDossier({
       species.iconic_taxon_name
     : "Unknown";
 
-  // Fetch Wikipedia information independently for each species.
+  // --------------------------------------------------
+  // FETCH WIKIPEDIA INFORMATION
+  // --------------------------------------------------
+
   useEffect(() => {
     const controller = new AbortController();
 
@@ -106,7 +145,9 @@ export default function SpeciesDossier({
       try {
         const response = await fetch(
           `${API_URL}/api/species/${species.id}/info`,
-          { signal: controller.signal }
+          {
+            signal: controller.signal,
+          }
         );
 
         if (!response.ok) {
@@ -140,6 +181,10 @@ export default function SpeciesDossier({
     return () => controller.abort();
   }, [species.id, retryCount]);
 
+  // --------------------------------------------------
+  // WIKIPEDIA DISPLAY VALUES
+  // --------------------------------------------------
+
   const wikipediaUrl = getWikipediaUrl(
     speciesInfo?.wikipedia_url ?? species.wikipedia_url
   );
@@ -150,9 +195,15 @@ export default function SpeciesDossier({
       .map((paragraph) => paragraph.trim())
       .filter(Boolean) ?? [];
 
+  // --------------------------------------------------
+  // RENDER
+  // --------------------------------------------------
+
   return (
     <div className="bg-[#fffdf7]">
-      {/* SPECIES PHOTOGRAPH */}
+      {/* --------------------------------------------------
+          SPECIES PHOTOGRAPH
+      -------------------------------------------------- */}
 
       <div className="relative aspect-[16/9] border-b-[3px] border-[#254d32] bg-[#dce8d6]">
         {species.photo_url && !imageFailed ? (
@@ -177,7 +228,9 @@ export default function SpeciesDossier({
         </div>
       </div>
 
-      {/* SPECIES INFORMATION */}
+      {/* --------------------------------------------------
+          SPECIES INFORMATION
+      -------------------------------------------------- */}
 
       <div className="p-6 md:p-9">
         <div className="mb-4 flex items-center gap-2">
@@ -196,7 +249,9 @@ export default function SpeciesDossier({
           {species.scientific_name}
         </p>
 
-        {/* INFORMATION PANEL */}
+        {/* --------------------------------------------------
+            INFORMATION PANEL
+        -------------------------------------------------- */}
 
         <div className="mt-8 border-[3px] border-[#254d32] bg-[#f5f1e6]">
           <div className="flex items-center justify-between gap-4 border-b-2 border-[#254d32] px-4 py-4">
@@ -230,7 +285,9 @@ export default function SpeciesDossier({
           </div>
         </div>
 
-        {/* FIELD ENCYCLOPEDIA */}
+        {/* --------------------------------------------------
+            FIELD ENCYCLOPEDIA
+        -------------------------------------------------- */}
 
         <section className="mt-10">
           <div className="mb-5 flex items-center gap-3">
@@ -249,13 +306,18 @@ export default function SpeciesDossier({
             </div>
           </div>
 
+          {/* LOADING */}
+
           {isLoadingInfo && (
             <div
               role="status"
               className="border-[3px] border-[#254d32] bg-[#f5f1e6] p-6"
             >
               <div className="mb-4 flex items-center gap-3">
-                <SpinnerGap size={20} className="animate-spin" />
+                <SpinnerGap
+                  size={20}
+                  className="animate-spin"
+                />
 
                 <span className="font-[family-name:var(--font-space-mono)] text-xs font-bold">
                   RETRIEVING FIELD NOTES...
@@ -270,6 +332,8 @@ export default function SpeciesDossier({
               </div>
             </div>
           )}
+
+          {/* ERROR */}
 
           {!isLoadingInfo && infoError && (
             <div
@@ -302,6 +366,8 @@ export default function SpeciesDossier({
             </div>
           )}
 
+          {/* WIKIPEDIA ARTICLE */}
+
           {!isLoadingInfo &&
             !infoError &&
             speciesInfo?.available &&
@@ -320,14 +386,16 @@ export default function SpeciesDossier({
                 )}
 
                 <div className="space-y-5">
-                  {summaryParagraphs.map((paragraph, index) => (
-                    <p
-                      key={index}
-                      className="font-[family-name:var(--font-dm-sans)] text-sm leading-7 text-[#425e47] md:text-[15px]"
-                    >
-                      {paragraph}
-                    </p>
-                  ))}
+                  {summaryParagraphs.map(
+                    (paragraph, index) => (
+                      <p
+                        key={index}
+                        className="font-[family-name:var(--font-dm-sans)] text-sm leading-7 text-[#425e47] md:text-[15px]"
+                      >
+                        {paragraph}
+                      </p>
+                    )
+                  )}
                 </div>
 
                 <div className="mt-6 border-t-2 border-[#b9c8af] pt-4">
@@ -337,6 +405,8 @@ export default function SpeciesDossier({
                 </div>
               </div>
             )}
+
+          {/* NO WIKIPEDIA ARTICLE */}
 
           {!isLoadingInfo &&
             !infoError &&
@@ -357,6 +427,8 @@ export default function SpeciesDossier({
               </div>
             )}
 
+          {/* WIKIPEDIA LINK */}
+
           {!isLoadingInfo && wikipediaUrl && (
             <a
               href={wikipediaUrl}
@@ -364,15 +436,21 @@ export default function SpeciesDossier({
               rel="noopener noreferrer"
               className="mt-6 inline-flex items-center gap-3 border-[3px] border-[#254d32] bg-[#e7a977] px-5 py-4 font-[family-name:var(--font-press-start)] text-[9px] leading-relaxed shadow-[4px_4px_0_#254d32] transition-transform hover:-translate-y-1"
             >
-              <ArrowSquareOut size={19} weight="bold" />
+              <ArrowSquareOut
+                size={19}
+                weight="bold"
+              />
+
               READ FULL WIKIPEDIA ARTICLE
             </a>
           )}
         </section>
 
-        {/* FUTURE AI FEATURE */}
+        {/* --------------------------------------------------
+            ASK BIOFILES AI
+        -------------------------------------------------- */}
 
-        <div className="mt-10 border-[3px] border-dashed border-[#254d32] bg-[#dce8d6] p-5">
+        <div className="mt-10 border-[3px] border-[#254d32] bg-[#dce8d6] p-5">
           <div className="flex items-center gap-3">
             <LockKey size={24} weight="duotone" />
 
@@ -382,11 +460,68 @@ export default function SpeciesDossier({
               </h3>
 
               <p className="mt-1 font-[family-name:var(--font-dm-sans)] text-xs text-[#58705b]">
-                AI-powered species research is coming soon.
+                Explore this species with AI-powered research.
               </p>
             </div>
           </div>
+
+          {/* LAUNCH AI BUTTON */}
+
+          <button
+            type="button"
+            onClick={onPrepareAI}
+            disabled={isAIPreparing || isAIReady}
+            className="mt-5 flex items-center gap-2 border-[3px] border-[#254d32] bg-[#e7a977] px-5 py-3 font-[family-name:var(--font-press-start)] text-[9px] shadow-[4px_4px_0_#254d32] transition-transform hover:-translate-y-1 disabled:cursor-default disabled:opacity-60"
+          >
+            {isAIPreparing ? (
+              <SpinnerGap
+                size={18}
+                className="animate-spin"
+              />
+            ) : isAIReady ? (
+              <CheckCircle
+                size={18}
+                weight="fill"
+              />
+            ) : (
+              <BookOpen
+                size={18}
+                weight="bold"
+              />
+            )}
+
+            {isAIPreparing
+              ? "PREPARING..."
+              : isAIReady
+                ? "AI READY"
+                : "LAUNCH BIOFILES AI"}
+          </button>
+
+          {/* AI READY MESSAGE */}
+
+          {isAIReady && (
+            <p
+              role="status"
+              className="mt-5 font-[family-name:var(--font-space-mono)] text-xs text-[#425e47]"
+            >
+              Species knowledge is ready! You can now ask questions below.
+            </p>
+          )}
         </div>
+
+        {/* --------------------------------------------------
+            AI CHAT INTERFACE
+
+            Only rendered once species indexing is complete.
+            Each dossier maintains its own conversation.
+        -------------------------------------------------- */}
+
+        {isAIReady && (
+          <SpeciesAIChat
+            speciesId={species.id}
+            speciesName={displayName}
+          />
+        )}
       </div>
     </div>
   );
