@@ -1,21 +1,50 @@
+import logging
+import os
 import re
+
 from html import unescape
 from urllib.parse import unquote, urlparse
 
 import httpx
-from bs4 import BeautifulSoup, Tag
+
+from bs4 import BeautifulSoup
 from fastapi import HTTPException
 
 
+# --------------------------------------------------
+# CONFIGURATION
+# --------------------------------------------------
+
 INATURALIST_BASE_URL = "https://api.inaturalist.org/v1"
+
 WIKIPEDIA_API_URL = "https://en.wikipedia.org/w/api.php"
 
-REQUEST_TIMEOUT = 15.0
+REQUEST_TIMEOUT = 20.0
+
+logger = logging.getLogger(__name__)
+
+# Set WIKIPEDIA_CONTACT_EMAIL in your environment.
+# Use an email address you control.
+CONTACT_EMAIL = os.getenv(
+    "WIKIPEDIA_CONTACT_EMAIL",
+    "",
+).strip()
+
+USER_AGENT = (
+    "BioFiles/1.0 "
+    f"(educational biodiversity explorer; "
+    f"contact: {CONTACT_EMAIL or 'contact-not-configured'})"
+)
 
 HEADERS = {
-    "User-Agent": "BioFiles/0.1 (educational biodiversity explorer)",
+    "User-Agent": USER_AGENT,
     "Accept": "application/json",
 }
+
+
+# --------------------------------------------------
+# EXCLUDED WIKIPEDIA SECTIONS
+# --------------------------------------------------
 
 EXCLUDED_SECTIONS = {
     "references",
@@ -26,6 +55,7 @@ EXCLUDED_SECTIONS = {
     "bibliography",
     "sources",
 }
+
 
 REMOVABLE_SELECTORS = (
     "sup.reference, "
@@ -47,6 +77,59 @@ REMOVABLE_SELECTORS = (
 
 
 # --------------------------------------------------
+# HELPER: LOG UPSTREAM HTTP ERRORS
+# --------------------------------------------------
+
+def log_http_error(
+    context: str,
+    error: httpx.HTTPStatusError,
+):
+    """
+    Log the upstream service, HTTP status,
+    and a short response excerpt.
+
+    This helps diagnose production failures
+    without exposing internal error details
+    to frontend users.
+    """
+
+    response = error.response
+
+    logger.error(
+        "[%s] Upstream HTTP error | "
+        "status=%s | host=%s | path=%s | "
+        "response=%s",
+        context,
+        response.status_code,
+        response.request.url.host,
+        response.request.url.path,
+        response.text[:300],
+    )
+
+
+# --------------------------------------------------
+# HELPER: LOG CONNECTION ERRORS
+# --------------------------------------------------
+
+def log_request_error(
+    context: str,
+    error: httpx.RequestError,
+):
+    """
+    Log failed requests and timeouts.
+    """
+
+    logger.error(
+        "[%s] Upstream request failed | "
+        "error_type=%s | host=%s | error=%r",
+        context,
+        type(error).__name__,
+        error.request.url.host,
+        error,
+    )
+
+
+# --------------------------------------------------
 # HELPER: FETCH INATURALIST TAXON
 # --------------------------------------------------
 
@@ -64,7 +147,10 @@ async def fetch_taxon(
 
     response.raise_for_status()
 
-    results = response.json().get("results", [])
+    results = response.json().get(
+        "results",
+        [],
+    )
 
     if not results:
         raise HTTPException(
@@ -79,16 +165,23 @@ async def fetch_taxon(
 # HELPER: EXTRACT WIKIPEDIA TITLE
 # --------------------------------------------------
 
-def extract_wikipedia_title(wikipedia_url: str):
+def extract_wikipedia_title(
+    wikipedia_url: str,
+):
     """
     Extract an article title from a Wikipedia URL.
     """
 
-    parsed_url = urlparse(wikipedia_url)
+    parsed_url = urlparse(
+        wikipedia_url
+    )
 
     return unquote(
         parsed_url.path.split("/wiki/")[-1]
-    ).replace("_", " ")
+    ).replace(
+        "_",
+        " ",
+    )
 
 
 # --------------------------------------------------
@@ -103,8 +196,11 @@ async def fetch_wikipedia_text(
     """
     Retrieve plain-text Wikipedia content.
 
-    intro_only=True  -> Introduction
-    intro_only=False -> Full article
+    intro_only=True:
+        Introduction only.
+
+    intro_only=False:
+        Complete article.
     """
 
     params = {
@@ -132,7 +228,10 @@ async def fetch_wikipedia_text(
         .get("pages", {})
     )
 
-    page = next(iter(pages.values()), {})
+    page = next(
+        iter(pages.values()),
+        {},
+    )
 
     return {
         "title": page.get("title"),
@@ -149,8 +248,7 @@ async def resolve_wikipedia_title(
     article_title: str,
 ):
     """
-    Resolve redirects before retrieving structured
-    Wikipedia content.
+    Resolve Wikipedia redirects.
 
     Example:
         Milvus migrans -> Black kite
@@ -170,9 +268,15 @@ async def resolve_wikipedia_title(
 
     data = response.json()
 
-    pages = data.get("query", {}).get("pages", {})
+    pages = (
+        data.get("query", {})
+        .get("pages", {})
+    )
 
-    page = next(iter(pages.values()), {})
+    page = next(
+        iter(pages.values()),
+        {},
+    )
 
     if not page or "missing" in page:
         raise HTTPException(
@@ -187,17 +291,27 @@ async def resolve_wikipedia_title(
 # HELPER: CLEAN EXTRACTED TEXT
 # --------------------------------------------------
 
-def clean_extracted_text(text: str) -> str:
+def clean_extracted_text(
+    text: str,
+) -> str:
     """
-    Normalize whitespace while preserving readable
-    sentences.
+    Normalize whitespace while preserving
+    readable sentences.
     """
 
     text = unescape(text)
 
-    text = re.sub(r"\s+", " ", text)
+    text = re.sub(
+        r"\s+",
+        " ",
+        text,
+    )
 
-    text = re.sub(r"\s+([,.;:!?])", r"\1", text)
+    text = re.sub(
+        r"\s+([,.;:!?])",
+        r"\1",
+        text,
+    )
 
     return text.strip()
 
@@ -206,54 +320,64 @@ def clean_extracted_text(text: str) -> str:
 # HELPER: EXTRACT ARTICLE BLOCKS
 # --------------------------------------------------
 
-def extract_article_blocks(soup: BeautifulSoup):
+def extract_article_blocks(
+    soup: BeautifulSoup,
+):
     """
-    Extract headings, paragraphs and list items in
-    document order.
+    Extract headings, paragraphs, and list items
+    in document order.
 
-    Each paragraph/list item is returned once.
-
-    This prevents parent sections from duplicating
-    content belonging to their subsections.
+    Avoid duplicate content from nested elements.
     """
 
-    root = soup.select_one(".mw-parser-output")
+    root = soup.select_one(
+        ".mw-parser-output"
+    )
 
     if root is None:
         root = soup
 
-    # Remove non-content elements.
-    for element in root.select(REMOVABLE_SELECTORS):
+    for element in root.select(
+        REMOVABLE_SELECTORS
+    ):
         element.decompose()
 
     blocks = []
 
-    # We only process relevant text elements.
     for element in root.find_all(
-        ["h2", "h3", "h4", "h5", "h6", "p", "li"]
+        [
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "p",
+            "li",
+        ]
     ):
 
-        # Ignore nested list items that are already
-        # represented by their parent list item.
         if element.name == "li":
             if element.find_parent("li"):
                 continue
 
-        # Ignore paragraphs inside list items to
-        # avoid extracting the same text twice.
         if element.name == "p":
             if element.find_parent("li"):
                 continue
 
-        # Ignore headings or paragraphs inside
-        # unrelated nested components.
         if element.find_parent(
-            ["table", "figure", "nav"]
+            [
+                "table",
+                "figure",
+                "nav",
+            ]
         ):
             continue
 
         text = clean_extracted_text(
-            element.get_text(" ", strip=True)
+            element.get_text(
+                " ",
+                strip=True,
+            )
         )
 
         if not text:
@@ -263,7 +387,9 @@ def extract_article_blocks(soup: BeautifulSoup):
             blocks.append(
                 {
                     "type": "heading",
-                    "level": int(element.name[1]),
+                    "level": int(
+                        element.name[1]
+                    ),
                     "text": text,
                 }
             )
@@ -280,21 +406,25 @@ def extract_article_blocks(soup: BeautifulSoup):
 
 
 # --------------------------------------------------
-# EXISTING FUNCTION: SPECIES DOSSIER
+# SPECIES DOSSIER
 # --------------------------------------------------
 
-async def get_species_info(taxon_id: int):
+async def get_species_info(
+    taxon_id: int,
+):
     """
     Retrieve introductory Wikipedia information
     for the species dossier.
 
-    Preserves existing frontend behavior.
+    Preserves the existing frontend response.
     """
 
     try:
+
         async with httpx.AsyncClient(
             timeout=REQUEST_TIMEOUT,
             headers=HEADERS,
+            follow_redirects=True,
         ) as client:
 
             taxon = await fetch_taxon(
@@ -302,7 +432,9 @@ async def get_species_info(taxon_id: int):
                 taxon_id,
             )
 
-            scientific_name = taxon.get("name")
+            scientific_name = taxon.get(
+                "name"
+            )
 
             common_name = taxon.get(
                 "preferred_common_name"
@@ -347,40 +479,54 @@ async def get_species_info(taxon_id: int):
 
     except httpx.HTTPStatusError as error:
 
+        log_http_error(
+            "SPECIES INFO",
+            error,
+        )
+
         if error.response.status_code == 404:
             raise HTTPException(
                 status_code=404,
                 detail="Species information not found.",
-            )
+            ) from error
 
         raise HTTPException(
             status_code=502,
             detail="Unable to retrieve species information.",
+        ) from error
+
+    except httpx.RequestError as error:
+
+        log_request_error(
+            "SPECIES INFO",
+            error,
         )
 
-    except httpx.RequestError:
         raise HTTPException(
             status_code=502,
             detail="Unable to connect to the species information service.",
-        )
+        ) from error
 
 
 # --------------------------------------------------
-# EXISTING FUNCTION: FULL ARTICLE FOR RAG
+# FULL WIKIPEDIA ARTICLE FOR RAG
 # --------------------------------------------------
 
-async def get_full_wikipedia_article(taxon_id: int):
+async def get_full_wikipedia_article(
+    taxon_id: int,
+):
     """
-    Retrieve the complete plain-text Wikipedia
-    article for a species.
+    Retrieve complete plain-text Wikipedia content.
 
     Retained for compatibility and debugging.
     """
 
     try:
+
         async with httpx.AsyncClient(
             timeout=REQUEST_TIMEOUT,
             headers=HEADERS,
+            follow_redirects=True,
         ) as client:
 
             taxon = await fetch_taxon(
@@ -421,21 +567,33 @@ async def get_full_wikipedia_article(taxon_id: int):
                 "available": bool(content),
             }
 
-    except httpx.HTTPStatusError:
+    except httpx.HTTPStatusError as error:
+
+        log_http_error(
+            "FULL WIKIPEDIA ARTICLE",
+            error,
+        )
+
         raise HTTPException(
             status_code=502,
             detail="Unable to retrieve Wikipedia article.",
+        ) from error
+
+    except httpx.RequestError as error:
+
+        log_request_error(
+            "FULL WIKIPEDIA ARTICLE",
+            error,
         )
 
-    except httpx.RequestError:
         raise HTTPException(
             status_code=502,
             detail="Unable to connect to Wikipedia.",
-        )
+        ) from error
 
 
 # --------------------------------------------------
-# NEW FUNCTION: STRUCTURED ARTICLE FOR RAG
+# STRUCTURED WIKIPEDIA ARTICLE FOR RAG
 # --------------------------------------------------
 
 async def get_structured_wikipedia_article(
@@ -445,21 +603,15 @@ async def get_structured_wikipedia_article(
     Retrieve Wikipedia content organized into
     sections and subsections.
 
-    Features:
-    - Resolves redirects
-    - Fetches article HTML once
-    - Preserves section hierarchy
-    - Extracts paragraphs and lists
-    - Prevents parent/child content duplication
-    - Excludes references and navigation sections
-
-    Used by BioFiles' RAG indexing pipeline.
+    Used by the RAG indexing pipeline.
     """
 
     try:
+
         async with httpx.AsyncClient(
             timeout=REQUEST_TIMEOUT,
             headers=HEADERS,
+            follow_redirects=True,
         ) as client:
 
             # --------------------------------------
@@ -521,7 +673,10 @@ async def get_structured_wikipedia_article(
                     detail="Unable to parse Wikipedia article.",
                 )
 
-            parsed_article = data.get("parse", {})
+            parsed_article = data.get(
+                "parse",
+                {},
+            )
 
             html_content = (
                 parsed_article
@@ -547,7 +702,9 @@ async def get_structured_wikipedia_article(
                 "html.parser",
             )
 
-            blocks = extract_article_blocks(soup)
+            blocks = extract_article_blocks(
+                soup
+            )
 
             # --------------------------------------
             # STEP 5: BUILD SECTION HIERARCHY
@@ -570,27 +727,25 @@ async def get_structured_wikipedia_article(
                 if block["type"] == "heading":
 
                     level = block["level"]
+
                     title = block["text"]
 
-                    # Exit excluded subtree when we
-                    # encounter a heading at the same
-                    # or higher level.
                     if (
                         excluded_level is not None
                         and level <= excluded_level
                     ):
                         excluded_level = None
 
-                    # Finalize previous section.
                     if (
                         current_section is not None
                         and current_section["content_blocks"]
                     ):
-                        sections.append(current_section)
+                        sections.append(
+                            current_section
+                        )
 
                     current_section = None
 
-                    # Maintain heading hierarchy.
                     while (
                         hierarchy
                         and hierarchy[-1]["level"] >= level
@@ -604,9 +759,10 @@ async def get_structured_wikipedia_article(
                         }
                     )
 
-                    # Exclude reference sections
-                    # and their subsections.
-                    if title.lower() in EXCLUDED_SECTIONS:
+                    if (
+                        title.lower()
+                        in EXCLUDED_SECTIONS
+                    ):
                         excluded_level = level
 
                     if excluded_level is not None:
@@ -633,7 +789,9 @@ async def get_structured_wikipedia_article(
 
                     current_section[
                         "content_blocks"
-                    ].append(block["text"])
+                    ].append(
+                        block["text"]
+                    )
 
             # --------------------------------------
             # STEP 6: FINALIZE LAST SECTION
@@ -643,7 +801,9 @@ async def get_structured_wikipedia_article(
                 current_section is not None
                 and current_section["content_blocks"]
             ):
-                sections.append(current_section)
+                sections.append(
+                    current_section
+                )
 
             # --------------------------------------
             # STEP 7: FORMAT OUTPUT
@@ -676,17 +836,31 @@ async def get_structured_wikipedia_article(
                 ),
                 "source_url": wikipedia_url,
                 "sections": result_sections,
-                "available": bool(result_sections),
+                "available": bool(
+                    result_sections
+                ),
             }
 
-    except httpx.HTTPStatusError:
+    except httpx.HTTPStatusError as error:
+
+        log_http_error(
+            "STRUCTURED WIKIPEDIA ARTICLE",
+            error,
+        )
+
         raise HTTPException(
             status_code=502,
             detail="Unable to retrieve Wikipedia article.",
+        ) from error
+
+    except httpx.RequestError as error:
+
+        log_request_error(
+            "STRUCTURED WIKIPEDIA ARTICLE",
+            error,
         )
 
-    except httpx.RequestError:
         raise HTTPException(
             status_code=502,
             detail="Unable to connect to Wikipedia.",
-        )
+        ) from error
