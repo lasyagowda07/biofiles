@@ -24,3 +24,4 @@ websockets==17.4
 psycopg[binary]==3.3.8
 google-genai==3.2.0
 beautifulsoup4==4.15.0
+slowapi==0.1.10

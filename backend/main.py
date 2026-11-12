@@ -1,7 +1,14 @@
-from fastapi import FastAPI, Query, HTTPException
+import os
+
+from fastapi import FastAPI, Query, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
+
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
+from backend.rate_limit import limiter
 
 from backend.services.species_indexer import safely_index_species
 from backend.services.inaturalist import (
@@ -25,15 +32,34 @@ app = FastAPI(
 
 
 # --------------------------------------------------
+# RATE LIMITING
+# --------------------------------------------------
+
+app.state.limiter = limiter
+
+app.add_exception_handler(
+    RateLimitExceeded,
+    _rate_limit_exceeded_handler,
+)
+
+
+# --------------------------------------------------
 # CORS CONFIGURATION
 # --------------------------------------------------
 
+frontend_url = os.getenv("FRONTEND_URL", "").strip().rstrip("/")
+
+allowed_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+if frontend_url:
+    allowed_origins.append(frontend_url)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-    ],
+    allow_origins=allowed_origins,
     allow_credentials=False,
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
@@ -183,12 +209,17 @@ async def species_information(taxon_id: int):
 # --------------------------------------------------
 
 @app.post("/api/species/{taxon_id}/ask")
+@limiter.limit("10/minute")
 def ask_species_question(
+    request: Request,
     taxon_id: int,
-    request: SpeciesQuestionRequest,
+    body: SpeciesQuestionRequest,
 ):
     """
     Answer a species-specific question using RAG.
+
+    Rate limit:
+        10 requests per minute per IP.
 
     This route is synchronous because the RAG
     implementation uses blocking database and
@@ -203,7 +234,7 @@ def ask_species_question(
             detail="Taxon ID must be positive.",
         )
 
-    question = request.question.strip()
+    question = body.question.strip()
 
     if not question:
         raise HTTPException(
@@ -223,10 +254,17 @@ def ask_species_question(
 # --------------------------------------------------
 
 @app.post("/api/species/{taxon_id}/index")
-async def index_species_for_ai(taxon_id: int):
+@limiter.limit("3/minute")
+async def index_species_for_ai(
+    request: Request,
+    taxon_id: int,
+):
     """
     Prepare Wikipedia knowledge and embeddings
     for a species.
+
+    Rate limit:
+        3 requests per minute per IP.
 
     Returns immediately if the cache is fresh.
 
